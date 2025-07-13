@@ -1,0 +1,197 @@
+version: '3.8'
+
+services:
+  # Training service for model development
+  training:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.training
+    container_name: mvtec-training
+    environment:
+      - PYTHONPATH=/app
+      - CUDA_VISIBLE_DEVICES=0
+      - WANDB_MODE=offline
+      - ENVIRONMENT=production
+    volumes:
+      - ./dataset:/app/dataset:ro
+      - ./checkpoints:/app/checkpoints
+      - ./logs:/app/logs
+      - ./config:/app/config
+      - ./src:/app/src
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - mvtec-network
+    depends_on:
+      - database
+    restart: unless-stopped
+
+  # Inference API service
+  inference-api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.inference
+    container_name: mvtec-inference
+    ports:
+      - "5000:5000"
+    environment:
+      - PYTHONPATH=/app
+      - FLASK_ENV=production
+      - ENVIRONMENT=production
+      - API_HOST=0.0.0.0
+      - API_PORT=5000
+      - MODEL_PATH=/app/checkpoints/best_model.pth
+      - DATA_DIR=/app/dataset
+    volumes:
+      - ./checkpoints:/app/checkpoints:ro
+      - ./uploads:/app/uploads
+      - ./results:/app/results
+      - ./logs:/app/logs
+      - ./config:/app/config
+      - ./src:/app/src
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - mvtec-network
+    depends_on:
+      - database
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Web dashboard service
+  web-dashboard:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+    container_name: mvtec-dashboard
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - REACT_APP_API_URL=http://localhost:5000
+    volumes:
+      - ./web:/app
+    networks:
+      - mvtec-network
+    depends_on:
+      - inference-api
+    restart: unless-stopped
+
+  # Database service for storing results and metadata
+  database:
+    image: postgres:13
+    container_name: mvtec-database
+    environment:
+      - POSTGRES_DB=anomaly_detection
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - mvtec-network
+    restart: unless-stopped
+
+  # Redis for caching and session management
+  redis:
+    image: redis:6-alpine
+    container_name: mvtec-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - mvtec-network
+    restart: unless-stopped
+
+  # Monitoring service
+  monitoring:
+    image: prom/prometheus:latest
+    container_name: mvtec-monitoring
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+    networks:
+      - mvtec-network
+    restart: unless-stopped
+
+  # Log aggregation service
+  elasticsearch:
+    image: elasticsearch:7.14.0
+    container_name: mvtec-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    networks:
+      - mvtec-network
+    restart: unless-stopped
+
+  # Log visualization
+  kibana:
+    image: kibana:7.14.0
+    container_name: mvtec-kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    networks:
+      - mvtec-network
+    depends_on:
+      - elasticsearch
+    restart: unless-stopped
+
+  # Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: mvtec-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+    networks:
+      - mvtec-network
+    depends_on:
+      - inference-api
+      - web-dashboard
+    restart: unless-stopped
+
+networks:
+  mvtec-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  elasticsearch_data:

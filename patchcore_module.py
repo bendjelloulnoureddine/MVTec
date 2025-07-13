@@ -1,0 +1,55 @@
+import timm
+import torch
+import torch.nn as nn
+import pytorch_lightning as pl
+import faiss
+import numpy as np
+
+class FeatureExtractor(nn.Module):
+    def __init__(self, layers=[1, 2, 3]):
+        super().__init__()
+        self.model = timm.create_model("resnet18", pretrained=True, features_only=True)
+        self.layers = layers
+
+    def forward(self, x):
+        features = self.model(x)
+        selected = [features[i] for i in self.layers]
+        upsampled = [nn.functional.interpolate(f, size=(x.shape[2] // 8, x.shape[3] // 8), mode='bilinear') for f in selected]
+        return torch.cat(upsampled, dim=1)  # (B, C, H, W)
+
+class PatchCore(pl.LightningModule):
+    def __init__(self):
+        super().__init__()
+        self.feature_extractor = FeatureExtractor()
+        self.embeddings = []
+        self.index = None
+        self.patches = []
+        self.patch_shape = None
+
+    def training_step(self, batch, batch_idx):
+        features = self.feature_extractor(batch)
+        patches = features.unfold(2, 1, 1).unfold(3, 1, 1)
+        patches = patches.permute(0, 2, 3, 1, 4, 5).reshape(-1, features.shape[1])
+        self.patches.append(patches.detach().cpu())
+        return None
+
+    def on_train_end(self):
+        all_patches = torch.cat(self.patches, dim=0).numpy().astype(np.float32)
+        self.index = faiss.IndexFlatL2(all_patches.shape[1])
+        self.index.add(all_patches)
+        self.patch_shape = (32, 32)  # H, W
+
+    def infer_anomaly_map(self, x):
+        self.eval()
+        with torch.no_grad():
+            f = self.feature_extractor(x).cpu()
+            patches = f.unfold(2, 1, 1).unfold(3, 1, 1)
+            patches = patches.permute(0, 2, 3, 1, 4, 5).reshape(-1, f.shape[1])
+            D, _ = self.index.search(patches.numpy().astype(np.float32), 1)
+            scores = D.reshape(self.patch_shape)
+            scores = (scores - scores.min()) / (scores.max() - scores.min())
+            return scores
+
+    def configure_optimizers(self):
+        return None
+

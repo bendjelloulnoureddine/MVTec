@@ -1,0 +1,69 @@
+# Training environment Dockerfile
+FROM nvidia/cuda:11.8-devel-ubuntu20.04
+
+# Prevent interactive prompts during installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    python3.8 \
+    python3-pip \
+    python3-dev \
+    git \
+    curl \
+    wget \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libgtk-3-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /app
+
+# Set Python path
+ENV PYTHONPATH=/app
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip3 install --no-cache-dir -r requirements.txt
+
+# Install PyTorch with CUDA support
+RUN pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+# Install additional ML libraries
+RUN pip3 install \
+    pytorch-lightning \
+    wandb \
+    tensorboard \
+    albumentations \
+    timm \
+    scikit-learn \
+    matplotlib \
+    seaborn \
+    opencv-python \
+    Pillow \
+    tqdm \
+    hydra-core \
+    omegaconf
+
+# Copy application code
+COPY src/ ./src/
+COPY config/ ./config/
+COPY scripts/ ./scripts/
+
+# Create necessary directories
+RUN mkdir -p /app/checkpoints /app/logs /app/dataset /app/results
+
+# Set permissions
+RUN chmod +x /app/scripts/train.sh
+
+# Default command
+CMD ["python3", "-m", "src.training.train"]
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python3 -c "import torch; print('CUDA available:', torch.cuda.is_available())" || exit 1

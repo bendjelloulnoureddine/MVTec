@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MVTec Anomaly Detection API</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .section {
+            margin: 20px 0;
+            padding: 20px;
+            background-color: #f9f9f9;
+            border-radius: 5px;
+        }
+        label {
+            display: block;
+            margin: 10px 0 5px 0;
+            font-weight: bold;
+        }
+        input[type="text"], input[type="number"], input[type="file"] {
+            width: 100%;
+            padding: 8px;
+            margin: 5px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 10px 0;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        .success {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .error {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .status.loaded {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status.not-loaded {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        .prediction {
+            font-size: 18px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        .defective {
+            color: #dc3545;
+        }
+        .good {
+            color: #28a745;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 2s linear infinite;
+            margin: 0 auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>MVTec Anomaly Detection API</h1>
+        
+        <div class="section">
+            <h2>Model Status</h2>
+            <div id="status" class="status not-loaded">
+                <strong>Status:</strong> <span id="status-text">Checking...</span><br>
+                <strong>Device:</strong> <span id="device-text">-</span><br>
+                <strong>Threshold:</strong> <span id="threshold-text">-</span>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>Load Model</h2>
+            <label for="model-path">Model Path:</label>
+            <input type="text" id="model-path" value="screw_anomaly_detector.pth" placeholder="Path to model file">
+            
+            <label for="data-dir">Data Directory:</label>
+            <input type="text" id="data-dir" value="dataset/screw" placeholder="Path to dataset">
+            
+            <label for="latent-dim">Latent Dimension:</label>
+            <input type="number" id="latent-dim" value="512" min="1">
+            
+            <label for="percentile">Percentile for Threshold:</label>
+            <input type="number" id="percentile" value="90" min="1" max="100">
+            
+            <label for="custom-threshold">Custom Threshold (optional):</label>
+            <input type="number" id="custom-threshold" step="0.0001" placeholder="Leave empty to auto-calculate">
+            
+            <button onclick="loadModel()">Load Model</button>
+            
+            <div class="loading" id="load-loading">
+                <div class="spinner"></div>
+                <p>Loading model...</p>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>Test Image</h2>
+            <label for="image-file">Select Image:</label>
+            <input type="file" id="image-file" accept=".png,.jpg,.jpeg">
+            
+            <label for="test-threshold">Test Threshold (optional):</label>
+            <input type="number" id="test-threshold" step="0.0001" placeholder="Leave empty to use model threshold">
+            
+            <button onclick="testImage()" id="test-button" disabled>Test Image</button>
+            
+            <div class="loading" id="test-loading">
+                <div class="spinner"></div>
+                <p>Testing image...</p>
+            </div>
+        </div>
+        
+        <div id="results"></div>
+    </div>
+
+    <script>
+        // Check status on page load
+        window.onload = function() {
+            checkStatus();
+        };
+        
+        function checkStatus() {
+            fetch('/api/status')
+                .then(response => response.json())
+                .then(data => {
+                    const statusDiv = document.getElementById('status');
+                    const statusText = document.getElementById('status-text');
+                    const deviceText = document.getElementById('device-text');
+                    const thresholdText = document.getElementById('threshold-text');
+                    const testButton = document.getElementById('test-button');
+                    
+                    if (data.model_loaded) {
+                        statusDiv.className = 'status loaded';
+                        statusText.textContent = 'Model loaded';
+                        testButton.disabled = false;
+                    } else {
+                        statusDiv.className = 'status not-loaded';
+                        statusText.textContent = 'Model not loaded';
+                        testButton.disabled = true;
+                    }
+                    
+                    deviceText.textContent = data.device || '-';
+                    thresholdText.textContent = data.threshold ? data.threshold.toFixed(4) : '-';
+                })
+                .catch(error => {
+                    console.error('Error checking status:', error);
+                });
+        }
+        
+        function loadModel() {
+            const loadingDiv = document.getElementById('load-loading');
+            const resultsDiv = document.getElementById('results');
+            
+            loadingDiv.style.display = 'block';
+            resultsDiv.innerHTML = '';
+            
+            const modelPath = document.getElementById('model-path').value;
+            const dataDir = document.getElementById('data-dir').value;
+            const latentDim = parseInt(document.getElementById('latent-dim').value);
+            const percentile = parseInt(document.getElementById('percentile').value);
+            const customThreshold = document.getElementById('custom-threshold').value;
+            
+            const requestData = {
+                model_path: modelPath,
+                data_dir: dataDir,
+                latent_dim: latentDim,
+                percentile: percentile
+            };
+            
+            if (customThreshold) {
+                requestData.threshold = parseFloat(customThreshold);
+            }
+            
+            fetch('/api/load_model', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(requestData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                loadingDiv.style.display = 'none';
+                
+                if (data.success) {
+                    resultsDiv.innerHTML = `
+                        <div class="result success">
+                            <strong>Success:</strong> ${data.message}<br>
+                            <strong>Threshold:</strong> ${data.threshold.toFixed(4)}<br>
+                            <strong>Device:</strong> ${data.device}
+                        </div>
+                    `;
+                    checkStatus(); // Update status
+                } else {
+                    resultsDiv.innerHTML = `
+                        <div class="result error">
+                            <strong>Error:</strong> ${data.error}
+                        </div>
+                    `;
+                }
+            })
+            .catch(error => {
+                loadingDiv.style.display = 'none';
+                resultsDiv.innerHTML = `
+                    <div class="result error">
+                        <strong>Error:</strong> ${error.message}
+                    </div>
+                `;
+            });
+        }
+        
+        function testImage() {
+            const loadingDiv = document.getElementById('test-loading');
+            const resultsDiv = document.getElementById('results');
+            const fileInput = document.getElementById('image-file');
+            const testThreshold = document.getElementById('test-threshold').value;
+            
+            if (!fileInput.files[0]) {
+                resultsDiv.innerHTML = `
+                    <div class="result error">
+                        <strong>Error:</strong> Please select an image file.
+                    </div>
+                `;
+                return;
+            }
+            
+            loadingDiv.style.display = 'block';
+            resultsDiv.innerHTML = '';
+            
+            const formData = new FormData();
+            formData.append('image', fileInput.files[0]);
+            
+            if (testThreshold) {
+                formData.append('threshold', testThreshold);
+            }
+            
+            fetch('/api/test_image', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                loadingDiv.style.display = 'none';
+                
+                if (data.success) {
+                    const result = data.result;
+                    const predictionClass = result.is_defective ? 'defective' : 'good';
+                    const predictionText = result.is_defective ? 'DEFECTIVE' : 'GOOD';
+                    
+                    resultsDiv.innerHTML = `
+                        <div class="result success">
+                            <h3>Test Results for: ${data.filename}</h3>
+                            <div class="prediction ${predictionClass}">
+                                Prediction: ${predictionText}
+                            </div>
+                            <strong>Reconstruction Error:</strong> ${result.reconstruction_error.toFixed(4)}<br>
+                            <strong>Threshold:</strong> ${result.threshold.toFixed(4)}<br>
+                            <strong>Confidence:</strong> ${result.confidence.toFixed(4)}
+                        </div>
+                    `;
+                } else {
+                    resultsDiv.innerHTML = `
+                        <div class="result error">
+                            <strong>Error:</strong> ${data.error}
+                        </div>
+                    `;
+                }
+            })
+            .catch(error => {
+                loadingDiv.style.display = 'none';
+                resultsDiv.innerHTML = `
+                    <div class="result error">
+                        <strong>Error:</strong> ${error.message}
+                    </div>
+                `;
+            });
+        }
+    </script>
+</body>
+</html>

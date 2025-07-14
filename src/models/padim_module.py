@@ -28,7 +28,8 @@ class PaDiM(pl.LightningModule):
         x = batch
         feats = self.feature_extractor(x)
         self.features.append(feats.cpu())
-        return None
+        # Return a dummy loss for PyTorch Lightning
+        return torch.tensor(0.0, requires_grad=True, device=x.device)
 
     def on_train_end(self):
         features = torch.cat(self.features).detach().numpy()
@@ -41,6 +42,8 @@ class PaDiM(pl.LightningModule):
             feats = self.feature_extractor(x).cpu().numpy()
             return mahalanobis_map(feats, self.mean, self.cov_inv)
     def configure_optimizers(self):
-        return None
+        # PaDiM doesn't require optimization, but Lightning needs an optimizer
+        # Use a dummy optimizer with very small learning rate
+        return torch.optim.Adam(self.parameters(), lr=1e-8)
 
 

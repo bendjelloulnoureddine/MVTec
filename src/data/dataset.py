@@ -27,7 +27,14 @@ class MVTecDataset(Dataset):
         return self.transform(img)
 
 def get_train_loader():
-    return DataLoader(MVTecDataset("dataset/screw/train/good"), batch_size=C.BATCH_SIZE, shuffle=False)
+    return DataLoader(
+        MVTecDataset("dataset/screw/train/good"), 
+        batch_size=C.BATCH_SIZE, 
+        shuffle=False,
+        num_workers=2,  # Reduced for memory efficiency
+        pin_memory=False,  # Disable pin_memory to save GPU memory
+        persistent_workers=False  # Disable to save memory
+    )
 
 def get_test_images():
     test_files = sorted(glob("dataset/screw/test/**/*.png", recursive=True))

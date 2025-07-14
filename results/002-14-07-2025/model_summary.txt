@@ -1,0 +1,9 @@
+Model Training Summary
+==================================================
+
+Model Type: PaDiM
+Training Date: 2025-07-14T12:56:10.413542
+Model ID: 2
+Dataset: MVTec-screw
+Performance Metrics: N/A
+Created At: 2025-07-14 12:56:11

@@ -7,8 +7,20 @@ from src.data.dataset import get_train_loader, get_test_images
 from config.config import Config as C
 
 if __name__ == "__main__":
+    # Clear GPU memory
+    torch.cuda.empty_cache()
+    
+    # Optimize tensor cores for better performance
+    torch.set_float32_matmul_precision('medium')
+    
     model = PaDiM()
-    trainer = pl.Trainer(accelerator="auto", max_epochs=1)
+    trainer = pl.Trainer(
+        accelerator="auto", 
+        max_epochs=1,
+        log_every_n_steps=10,  # More frequent logging
+        enable_progress_bar=True,
+        enable_model_summary=True
+    )
     trainer.fit(model, get_train_loader())
 
     print("🧪 Inference:")

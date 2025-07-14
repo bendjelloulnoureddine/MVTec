@@ -31,7 +31,8 @@ class PatchCore(pl.LightningModule):
         patches = features.unfold(2, 1, 1).unfold(3, 1, 1)
         patches = patches.permute(0, 2, 3, 1, 4, 5).reshape(-1, features.shape[1])
         self.patches.append(patches.detach().cpu())
-        return None
+        # Return a dummy loss for PyTorch Lightning
+        return torch.tensor(0.0, requires_grad=True, device=batch.device)
 
     def on_train_end(self):
         all_patches = torch.cat(self.patches, dim=0).numpy().astype(np.float32)
@@ -51,5 +52,7 @@ class PatchCore(pl.LightningModule):
             return scores
 
     def configure_optimizers(self):
-        return None
+        # PatchCore doesn't require optimization, but Lightning needs an optimizer
+        # Use a dummy optimizer with very small learning rate
+        return torch.optim.Adam(self.parameters(), lr=1e-8)
 

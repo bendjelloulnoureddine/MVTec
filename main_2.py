@@ -17,8 +17,19 @@ def preprocess_image(path):
     return img.unsqueeze(0)
 
 if __name__ == "__main__":
+    # Optimize tensor cores for better performance
+    torch.set_float32_matmul_precision('medium')
+    
     model = PatchCore()
-    trainer = pl.Trainer(accelerator="auto", max_epochs=1, logger=False, enable_checkpointing=False)
+    trainer = pl.Trainer(
+        accelerator="auto", 
+        max_epochs=1, 
+        logger=False, 
+        enable_checkpointing=False,
+        log_every_n_steps=10,  # More frequent logging
+        enable_progress_bar=True,
+        enable_model_summary=True
+    )
     trainer.fit(model, get_train_loader())
 
     print("🔍 Inference...")

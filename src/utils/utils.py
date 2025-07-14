@@ -6,7 +6,14 @@ def compute_embedding_stats(embeddings: np.ndarray):
     N, C, H, W = embeddings.shape
     embeddings = embeddings.transpose(0, 2, 3, 1).reshape(N, -1, C)
     mean = embeddings.mean(axis=0)
-    cov = np.stack([LedoitWolf().fit(embeddings[:, i, :]).covariance_ for i in range(H * W)], axis=0)
+    
+    # Use standard covariance instead of LedoitWolf for speed
+    # Calculate covariance for each spatial position
+    cov = np.zeros((H * W, C, C))
+    for i in range(H * W):
+        centered = embeddings[:, i, :] - mean[i]
+        cov[i] = np.cov(centered.T)
+        
     return mean.reshape(H, W, C), cov.reshape(H, W, C, C)
 
 def mahalanobis_map(test_embed, mean, cov_inv):

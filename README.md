@@ -26,6 +26,7 @@ This system provides industrial-grade anomaly detection capabilities for quality
 
 ```
 MVTec Anomaly Detection System
+├── main.py              # Unified training script with CLI arguments
 ├── src/
 │   ├── data/              # Dataset handling and preprocessing
 │   │   └── dataset.py     # MVTec dataset loader
@@ -37,7 +38,10 @@ MVTec Anomaly Detection System
 │   ├── training/          # Training scripts and pipelines
 │   │   └── cl.py         # Complete training pipeline with wandb
 │   ├── utils/            # Utility functions
-│   │   └── utils.py      # Helper functions for statistics
+│   │   ├── utils.py      # Helper functions for statistics
+│   │   ├── bbox_detector.py  # Bounding box detection utilities
+│   │   ├── database.py   # SQLite database management
+│   │   └── file_manager.py   # Results and model management
 │   ├── api/              # REST API implementation
 │   │   └── app.py        # Flask API server
 │   ├── core/             # Core system components
@@ -52,6 +56,7 @@ MVTec Anomaly Detection System
 │   ├── templates/       # HTML templates
 │   └── requirements.txt # API dependencies
 ├── docker/              # Docker configurations
+├── results/             # Training results and models (auto-generated)
 └── scripts/             # Deployment scripts
 ```
 
@@ -294,32 +299,64 @@ docker-compose up inference-api
 
 ### Training Models
 
-#### PaDiM Training
+The unified training script supports both PaDiM and PatchCore algorithms with comprehensive CLI options:
+
+#### Basic Training
 ```bash
-# Train PaDiM model on screw dataset
+# Train PaDiM model (default)
 python main.py
 
-# The model will:
-# - Load data from dataset/screw/train/good/
-# - Extract features using ResNet-18
-# - Compute statistical parameters
-# - Save model for inference
-```
-
-#### PatchCore Training
-```bash
 # Train PatchCore model
-python main_2.py
-
-# Features:
-# - Uses FAISS for efficient nearest neighbor search
-# - Faster inference than PaDiM
-# - Good localization performance
+python main.py --algorithm patchcore
 ```
 
-#### Autoencoder Training (Complete Pipeline)
+#### Advanced Training Options
 ```bash
-# Run complete training pipeline with wandb logging
+# Train with custom dataset and parameters
+python main.py --algorithm padim \
+               --dataset /path/to/dataset \
+               --epochs 5 \
+               --threshold 0.3 \
+               --output-dir results \
+               --gpu
+
+# Short form arguments
+python main.py -a patchcore -d /path/to/dataset -e 10 -t 0.7 -o custom_results -g
+```
+
+#### Command Line Arguments
+- `--algorithm/-a`: Choose algorithm (`padim` or `patchcore`) - default: `padim`
+- `--dataset/-d`: Path to dataset directory - default: uses config default
+- `--epochs/-e`: Number of training epochs - default: `1`
+- `--threshold/-t`: Anomaly detection threshold - default: `0.5`
+- `--output-dir/-o`: Output directory for results - default: `results`
+- `--gpu/-g`: Use GPU if available - default: `False`
+
+#### Training Features
+- **Automatic Model Management**: Creates organized result folders with unique IDs
+- **Database Integration**: Tracks all training runs and model metadata
+- **Bounding Box Support**: Includes anomaly detection with bounding box utilities
+- **No Visualization**: Pure training mode without displaying images (results saved only)
+- **Comprehensive Logging**: Detailed model summaries and training information
+
+#### Example Usage Scenarios
+```bash
+# Quick test with PaDiM
+python main.py -a padim -e 1
+
+# Production training with PatchCore
+python main.py -a patchcore -d /data/production_dataset -e 20 -t 0.4 -g
+
+# Custom output directory
+python main.py -a padim -o /shared/models/experiment_001 -e 5
+
+# High-sensitivity detection
+python main.py -a patchcore -t 0.2 -e 15 -g
+```
+
+#### Legacy Training Scripts (Deprecated)
+```bash
+# Legacy complete training pipeline with wandb logging
 python src/training/cl.py
 
 # Features:
@@ -459,6 +496,12 @@ patchcore_result = patchcore_model.infer_anomaly_map(test_image)
 
 ### Core Components
 
+#### `main.py`
+- **Unified Training Script**: Single entry point for both PaDiM and PatchCore training
+- **CLI Arguments**: Comprehensive command-line interface with algorithm selection
+- **Result Management**: Automatic model saving and database integration
+- **No Visualization**: Pure training mode for production environments
+
 #### `/src/data/`
 - **`dataset.py`**: MVTec dataset loader with proper transforms and data loading utilities
 - Handles train/test splits and image preprocessing
@@ -478,10 +521,10 @@ patchcore_result = patchcore_model.infer_anomaly_map(test_image)
   - Model checkpointing and early stopping
 
 #### `/src/utils/`
-- **`utils.py`**: Utility functions for:
-  - Statistical computations (mean, covariance)
-  - Mahalanobis distance calculations
-  - Image preprocessing helpers
+- **`utils.py`**: Statistical computations (mean, covariance) and Mahalanobis distance
+- **`bbox_detector.py`**: Bounding box detection for anomaly localization
+- **`database.py`**: SQLite database management for tracking training runs
+- **`file_manager.py`**: Results organization and model persistence
 
 #### `/config/`
 - **`config.py`**: Main configuration file with model hyperparameters

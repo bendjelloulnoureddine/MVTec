@@ -1,0 +1,59 @@
+import torch
+import pytorch_lightning as pl
+import cv2
+import numpy as np
+import os
+
+from src.models.patchcore_module import PatchCore
+from src.data.dataset import get_train_loader
+from src.utils.database import InferenceDatabase
+from src.utils.file_manager import ResultsManager
+from config.config import Config as C
+
+
+if __name__ == "__main__":
+    # Initialize database and results manager
+    db = InferenceDatabase()
+    results_manager = ResultsManager()
+    
+    # Optimize tensor cores for better performance
+    torch.set_float32_matmul_precision('medium')
+    
+    model = PatchCore()
+    trainer = pl.Trainer(
+        accelerator="auto", 
+        max_epochs=1, 
+        logger=False, 
+        enable_checkpointing=False,
+        log_every_n_steps=10,  # More frequent logging
+        enable_progress_bar=True,
+        enable_model_summary=True
+    )
+    trainer.fit(model, get_train_loader())
+
+    # Save model and get ID
+    model_id = results_manager.get_next_model_id()
+    output_folder, folder_name = results_manager.create_result_folder(model_id)
+    model_path = os.path.join(output_folder, "patchcore_model.pkl")
+    
+    # Save model
+    results_manager.save_model(model, model_path, metadata={"model_type": "PatchCore"})
+    
+    # Save model info to database
+    db.save_model_info(
+        model_name=f"PatchCore_{model_id}",
+        model_type="PatchCore",
+        model_path=model_path
+    )
+    
+    # Create model summary
+    results_manager.create_model_summary(output_folder, {
+        "model_type": "PatchCore",
+        "model_id": model_id,
+        "dataset": "MVTec",
+        "training_date": "Today"
+    })
+
+    print(f"Training completed. Results saved to: {output_folder}")
+    print(f"Model ID: {model_id}")
+

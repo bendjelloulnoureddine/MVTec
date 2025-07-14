@@ -1,0 +1,9 @@
+Model Training Summary
+==================================================
+
+Model Type: PatchCore
+Training Date: Today
+Model ID: 3
+Dataset: MVTec
+Performance Metrics: N/A
+Created At: 2025-07-14 13:02:11

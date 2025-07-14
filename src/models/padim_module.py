@@ -35,7 +35,11 @@ class PaDiM(pl.LightningModule):
         features = torch.cat(self.features).detach().numpy()
         mean, cov = compute_embedding_stats(features)
         self.mean = mean
-        self.cov_inv = np.linalg.inv(cov)
+        # Add regularization to prevent singular matrices
+        eps = 1e-4
+        H, W, C, _ = cov.shape
+        regularized_cov = cov + eps * np.eye(C).reshape(1, 1, C, C)
+        self.cov_inv = np.linalg.inv(regularized_cov)
 
     def infer_anomaly_map(self, x):
         with torch.no_grad():

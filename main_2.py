@@ -4,9 +4,9 @@ import matplotlib.pyplot as plt
 import cv2
 import numpy as np
 
-from patchcore_module import PatchCore
-from dataset import get_train_loader, get_test_images
-from config import Config as C
+from src.models.patchcore_module import PatchCore
+from src.data.dataset import get_train_loader, get_test_images
+from config.config import Config as C
 
 def preprocess_image(path):
     img = cv2.imread(path)

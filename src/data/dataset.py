@@ -4,8 +4,9 @@ from glob import glob
 import torch
 from torchvision import transforms
 from torch.utils.data import Dataset, DataLoader
+from PIL import Image
 
-from config import Config as C
+from config.config import Config as C
 
 class MVTecDataset(Dataset):
     def __init__(self, root_dir):
@@ -22,12 +23,13 @@ class MVTecDataset(Dataset):
     def __getitem__(self, idx):
         img = cv2.imread(self.files[idx])
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img = Image.fromarray(img)
         return self.transform(img)
 
 def get_train_loader():
     return DataLoader(MVTecDataset("dataset/screw/train/good"), batch_size=C.BATCH_SIZE, shuffle=False)
 
 def get_test_images():
-    test_files = sorted(glob("dataset/mvtec_screw/test/**/*.png", recursive=True))
+    test_files = sorted(glob("dataset/screw/test/**/*.png", recursive=True))
     return test_files
 

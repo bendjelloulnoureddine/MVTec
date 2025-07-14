@@ -1,9 +1,10 @@
 import matplotlib.pyplot as plt
-from padim_module import PaDiM
-from dataset import get_train_loader, get_test_images
-from config import Config as C
+import cv2
 import torch
 import pytorch_lightning as pl
+from src.models.padim_module import PaDiM
+from src.data.dataset import get_train_loader, get_test_images
+from config.config import Config as C
 
 if __name__ == "__main__":
     model = PaDiM()

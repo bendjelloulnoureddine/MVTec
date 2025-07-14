@@ -2,6 +2,8 @@ import timm
 import torch
 import torch.nn as nn
 import pytorch_lightning as pl
+import numpy as np
+from src.utils.utils import compute_embedding_stats, mahalanobis_map
 
 class FeatureExtractor(nn.Module):
     def __init__(self, layers):
@@ -29,8 +31,7 @@ class PaDiM(pl.LightningModule):
         return None
 
     def on_train_end(self):
-        features = torch.cat(self.features).numpy()
-        from utils import compute_embedding_stats
+        features = torch.cat(self.features).detach().numpy()
         mean, cov = compute_embedding_stats(features)
         self.mean = mean
         self.cov_inv = np.linalg.inv(cov)
@@ -38,7 +39,6 @@ class PaDiM(pl.LightningModule):
     def infer_anomaly_map(self, x):
         with torch.no_grad():
             feats = self.feature_extractor(x).cpu().numpy()
-            from utils import mahalanobis_map
             return mahalanobis_map(feats, self.mean, self.cov_inv)
     def configure_optimizers(self):
         return None

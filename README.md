@@ -26,20 +26,33 @@ This system provides industrial-grade anomaly detection capabilities for quality
 
 ```
 MVTec Anomaly Detection System
-├── Training Pipeline
-│   ├── Data Loading & Preprocessing
-│   ├── Feature Extraction (PaDiM) / Model Training (Autoencoder)
-│   ├── Statistical Modeling / Weight Optimization
-│   └── Model Checkpointing
-├── Inference Pipeline
-│   ├── Model Loading
-│   ├── Threshold Calculation
-│   ├── Image Processing
-│   └── Anomaly Scoring
-└── API & Web Interface
-    ├── REST API Endpoints
-    ├── Web Dashboard
-    └── Real-time Testing
+├── src/
+│   ├── data/              # Dataset handling and preprocessing
+│   │   └── dataset.py     # MVTec dataset loader
+│   ├── models/            # Model implementations
+│   │   ├── padim_module.py      # PaDiM anomaly detection
+│   │   ├── patchcore_module.py  # PatchCore implementation
+│   │   ├── autoencoder.py       # Autoencoder model
+│   │   └── base.py             # Base model class
+│   ├── training/          # Training scripts and pipelines
+│   │   └── cl.py         # Complete training pipeline with wandb
+│   ├── utils/            # Utility functions
+│   │   └── utils.py      # Helper functions for statistics
+│   ├── api/              # REST API implementation
+│   │   └── app.py        # Flask API server
+│   ├── core/             # Core system components
+│   │   └── logging.py    # Logging configuration
+│   └── inference/        # Inference pipeline
+├── config/               # Configuration files
+│   ├── config.py         # Main configuration
+│   └── settings.py       # Additional settings
+├── tests/               # Test files
+│   └── test_model.py    # Model testing
+├── api/                 # API templates and requirements
+│   ├── templates/       # HTML templates
+│   └── requirements.txt # API dependencies
+├── docker/              # Docker configurations
+└── scripts/             # Deployment scripts
 ```
 
 ## 🎓 Training Process
@@ -266,54 +279,247 @@ docker-compose up inference-api
 
 ## 💡 Usage
 
-### Training
-```bash
-# PaDiM training
-python main.py --model padim --dataset screw
+### Quick Start
 
-# Autoencoder training
-python main_2.py --epochs 50 --batch_size 16
+1. **Install Dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. **Prepare Dataset**
+   ```bash
+   # Place MVTec dataset in dataset/ directory
+   # Structure: dataset/screw/train/good/ and dataset/screw/test/
+   ```
+
+### Training Models
+
+#### PaDiM Training
+```bash
+# Train PaDiM model on screw dataset
+python main.py
+
+# The model will:
+# - Load data from dataset/screw/train/good/
+# - Extract features using ResNet-18
+# - Compute statistical parameters
+# - Save model for inference
 ```
 
-### Testing
+#### PatchCore Training
 ```bash
-# Single image test
-python test_model.py --single_image path/to/image.png --model_path model.pth
+# Train PatchCore model
+python main_2.py
 
-# Dataset evaluation
-python test_model.py --data_dir dataset/screw --model_path model.pth
+# Features:
+# - Uses FAISS for efficient nearest neighbor search
+# - Faster inference than PaDiM
+# - Good localization performance
+```
+
+#### Autoencoder Training (Complete Pipeline)
+```bash
+# Run complete training pipeline with wandb logging
+python src/training/cl.py
+
+# Features:
+# - Automatic threshold calculation
+# - Comprehensive evaluation metrics
+# - Visualization of results
+# - Model checkpointing
+# - W&B experiment tracking
+```
+
+### Testing and Inference
+
+#### Single Image Testing
+```bash
+# Test with PaDiM model
+python -c "
+from src.models.padim_module import PaDiM
+from src.data.dataset import get_test_images
+import torch
+
+model = PaDiM()
+# Load your trained model here
+test_images = get_test_images()
+anomaly_map = model.infer_anomaly_map(test_images[0])
+print(f'Anomaly detected: {anomaly_map.max() > threshold}')
+"
+```
+
+#### Batch Testing
+```bash
+# Test multiple images from dataset
+python tests/test_model.py
 ```
 
 ### API Usage
+
+#### Start API Server
 ```bash
-# Start API server
+# Run Flask API server
+python src/api/app.py
+
+# Or using the API in api/ directory
 python api/app.py
-
-# Test via curl
-curl -X POST -F "image=@test.png" http://localhost:5000/api/test_image
 ```
 
-## 📈 Configuration
+#### Test API Endpoints
+```bash
+# Test single image
+curl -X POST -F "image=@test_image.png" http://localhost:5000/api/test_image
 
-### Model Configuration
+# Check API status
+curl http://localhost:5000/api/status
+
+# Load specific model
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"model_type": "padim", "model_path": "checkpoints/best_model.pth"}' \
+  http://localhost:5000/api/load_model
+```
+
+### Docker Usage
+
+#### Build and Run
+```bash
+# Build all services
+docker-compose up --build
+
+# Run specific service
+docker-compose up inference-api
+
+# Development mode
+docker-compose -f docker-compose.dev.yml up
+```
+
+#### Docker Services
+- **training-service**: Model training environment
+- **inference-api**: REST API for model inference
+- **web-interface**: Web dashboard for testing
+- **jupyter**: Jupyter notebook environment
+
+### Configuration
+
+#### Model Configuration
 ```python
-# config.py
+# config/config.py
 class Config:
-    IMAGE_SIZE = 256
-    BATCH_SIZE = 16
-    LEARNING_RATE = 1e-4
-    LATENT_DIM = 512
-    THRESHOLD_PERCENTILE = 90
+    IMAGE_SIZE = 256          # Input image size
+    BATCH_SIZE = 16          # Training batch size
+    LEARNING_RATE = 1e-4     # Learning rate
+    LATENT_DIM = 512         # Autoencoder latent dimension
+    THRESHOLD_PERCENTILE = 90 # Anomaly threshold percentile
 ```
 
-### API Configuration
+#### Data Configuration
 ```python
-# api/config.py
-class APIConfig:
-    MAX_FILE_SIZE = 16 * 1024 * 1024  # 16MB
-    ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
-    MODEL_PATH = 'checkpoints/best_model.pth'
-    DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+# Modify dataset path in src/data/dataset.py
+def get_train_loader():
+    return DataLoader(
+        MVTecDataset("dataset/screw/train/good"), 
+        batch_size=C.BATCH_SIZE, 
+        shuffle=False
+    )
+```
+
+### Advanced Usage
+
+#### Custom Dataset
+```python
+# Create custom dataset class
+from src.data.dataset import MVTecDataset
+
+class CustomDataset(MVTecDataset):
+    def __init__(self, root_dir, transform=None):
+        super().__init__(root_dir)
+        self.transform = transform
+    
+    def __getitem__(self, idx):
+        # Custom preprocessing
+        return processed_image
+```
+
+#### Model Comparison
+```python
+# Compare different models
+from src.models.padim_module import PaDiM
+from src.models.patchcore_module import PatchCore
+
+# Train both models
+padim_model = PaDiM()
+patchcore_model = PatchCore()
+
+# Compare performance
+padim_result = padim_model.infer_anomaly_map(test_image)
+patchcore_result = patchcore_model.infer_anomaly_map(test_image)
+```
+
+## 📁 Project Structure Details
+
+### Core Components
+
+#### `/src/data/`
+- **`dataset.py`**: MVTec dataset loader with proper transforms and data loading utilities
+- Handles train/test splits and image preprocessing
+- Supports multiple MVTec product categories
+
+#### `/src/models/`
+- **`padim_module.py`**: PaDiM implementation with feature extraction and Mahalanobis distance
+- **`patchcore_module.py`**: PatchCore with FAISS-based nearest neighbor search
+- **`autoencoder.py`**: Convolutional autoencoder for reconstruction-based anomaly detection
+- **`base.py`**: Base model class with common functionality
+
+#### `/src/training/`
+- **`cl.py`**: Complete training pipeline with:
+  - Automatic threshold calculation
+  - Comprehensive evaluation metrics
+  - W&B experiment tracking
+  - Model checkpointing and early stopping
+
+#### `/src/utils/`
+- **`utils.py`**: Utility functions for:
+  - Statistical computations (mean, covariance)
+  - Mahalanobis distance calculations
+  - Image preprocessing helpers
+
+#### `/config/`
+- **`config.py`**: Main configuration file with model hyperparameters
+- **`settings.py`**: Additional system settings and paths
+
+### API and Web Interface
+
+#### `/src/api/` and `/api/`
+- REST API implementation with Flask
+- File upload handling and model inference
+- Response formatting and error handling
+
+#### `/docker/`
+- **`Dockerfile.training`**: Training environment
+- **`Dockerfile.inference`**: Inference API container
+- **`Dockerfile.web`**: Web interface container
+- **`Dockerfile.jupyter`**: Jupyter notebook environment
+
+### Configuration Files
+
+#### Model Configuration
+```python
+# config/config.py
+class Config:
+    IMAGE_SIZE = 256          # Input image size
+    BATCH_SIZE = 16          # Training batch size
+    LEARNING_RATE = 1e-4     # Learning rate
+    LATENT_DIM = 512         # Autoencoder latent dimension
+    THRESHOLD_PERCENTILE = 90 # Anomaly threshold percentile
+```
+
+#### API Configuration
+```python
+# API settings
+MAX_FILE_SIZE = 16 * 1024 * 1024  # 16MB
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
+MODEL_PATH = 'checkpoints/best_model.pth'
+DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 ```
 
 ## 🔍 Troubleshooting

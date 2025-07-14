@@ -17,10 +17,20 @@ A comprehensive anomaly detection system for industrial quality control using th
 
 ## 🎯 Overview
 
-This system provides industrial-grade anomaly detection capabilities for quality control in manufacturing environments. It supports two main approaches:
+This system provides industrial-grade anomaly detection capabilities for quality control in manufacturing environments. It supports multiple training approaches and algorithms:
 
+### Supported Algorithms
 1. **PaDiM (Patch Distribution Modeling)**: Uses feature extraction from pretrained ResNet to model normal patterns
-2. **Convolutional Autoencoder**: Learns to reconstruct normal images and detects anomalies based on reconstruction error
+2. **PatchCore**: Advanced patch-based anomaly detection with FAISS-based nearest neighbor search  
+3. **Convolutional Autoencoder**: Learns to reconstruct normal images and detects anomalies based on reconstruction error
+
+### Key Features
+- **Multiple Training Scripts**: Production-ready, research-focused, and simple training options
+- **GPU Memory Management**: Comprehensive memory optimization and monitoring utilities
+- **Database Integration**: SQLite database for experiment tracking and result management
+- **Automatic Model Management**: Organized result folders with unique model IDs
+- **REST API**: Full API support for model deployment and inference
+- **Docker Support**: Containerized deployment for production environments
 
 ## 🏗️ System Architecture
 
@@ -299,72 +309,100 @@ docker-compose up inference-api
 
 ### Training Models
 
-The unified training script supports both PaDiM and PatchCore algorithms with comprehensive CLI options:
+The system provides three training approaches with different features and complexity levels:
 
-#### Basic Training
+#### 1. Unified Training Script (Recommended)
+The main entry point with comprehensive CLI options and memory management:
+
 ```bash
-# Train PaDiM model (default)
+# Basic training with PaDiM (default)
 python main.py
 
 # Train PatchCore model
-python main.py --algorithm patchcore
-```
+python main.py --algorithm patchcore --gpu
 
-#### Advanced Training Options
-```bash
-# Train with custom dataset and parameters
+# Advanced training with custom parameters
 python main.py --algorithm padim \
                --dataset /path/to/dataset \
                --epochs 5 \
                --threshold 0.3 \
                --output-dir results \
-               --gpu
-
-# Short form arguments
-python main.py -a patchcore -d /path/to/dataset -e 10 -t 0.7 -o custom_results -g
+               --gpu \
+               --batch-size 8 \
+               --accumulate-grad-batches 2
 ```
 
-#### Command Line Arguments
+**Command Line Arguments:**
 - `--algorithm/-a`: Choose algorithm (`padim` or `patchcore`) - default: `padim`
 - `--dataset/-d`: Path to dataset directory - default: uses config default
 - `--epochs/-e`: Number of training epochs - default: `1`
 - `--threshold/-t`: Anomaly detection threshold - default: `0.5`
 - `--output-dir/-o`: Output directory for results - default: `results`
 - `--gpu/-g`: Use GPU if available - default: `False`
+- `--batch-size/-b`: Batch size for training - default: `16`
+- `--accumulate-grad-batches/-acc`: Gradient accumulation batches - default: `1`
 
-#### Training Features
+**Key Features:**
+- **Memory Management**: Advanced GPU memory optimization with PyTorch Lightning
 - **Automatic Model Management**: Creates organized result folders with unique IDs
-- **Database Integration**: Tracks all training runs and model metadata
-- **Bounding Box Support**: Includes anomaly detection with bounding box utilities
-- **No Visualization**: Pure training mode without displaying images (results saved only)
+- **Database Integration**: SQLite database for tracking all training runs
+- **Production Ready**: Clean training mode without visualization for deployment
 - **Comprehensive Logging**: Detailed model summaries and training information
 
-#### Example Usage Scenarios
+#### 2. Enhanced Training with Visualization
+For development and research with full GPU acceleration and visualization:
+
 ```bash
-# Quick test with PaDiM
+# GPU-accelerated training with visualization
+python train_enhanced.py
+
+# Features:
+# - GPU-accelerated feature extraction and computation
+# - Automatic memory management and monitoring
+# - Visualization of training results
+# - Database integration for experiment tracking
+# - Detailed inference testing on sample images
+```
+
+#### 3. Simple Training Script
+For quick testing and development:
+
+```bash
+# Simple training with basic visualization
+python train_simple.py
+
+# Features:
+# - Lightweight implementation
+# - Basic GPU memory management
+# - Simple visualization with matplotlib
+# - Good for prototyping and testing
+```
+
+#### Training Examples
+```bash
+# Production training with memory optimization
+python main.py -a patchcore -e 10 -g -b 8 -acc 2
+
+# Quick development test
 python main.py -a padim -e 1
 
-# Production training with PatchCore
-python main.py -a patchcore -d /data/production_dataset -e 20 -t 0.4 -g
-
-# Custom output directory
-python main.py -a padim -o /shared/models/experiment_001 -e 5
+# Custom dataset training
+python main.py -a padim -d /path/to/custom/dataset -e 5 -g
 
 # High-sensitivity detection
 python main.py -a patchcore -t 0.2 -e 15 -g
 ```
 
-#### Legacy Training Scripts (Deprecated)
+#### Legacy Training Scripts
 ```bash
-# Legacy complete training pipeline with wandb logging
+# Complete training pipeline with wandb logging (legacy)
 python src/training/cl.py
 
 # Features:
 # - Automatic threshold calculation
 # - Comprehensive evaluation metrics
-# - Visualization of results
-# - Model checkpointing
 # - W&B experiment tracking
+# - Model checkpointing and early stopping
 ```
 
 ### Testing and Inference
@@ -462,6 +500,41 @@ def get_train_loader():
 
 ### Advanced Usage
 
+#### GPU Memory Management
+The system includes comprehensive GPU memory management utilities:
+
+```python
+# GPU utilities for memory optimization
+from src.utils.gpu_utils import (
+    clear_gpu_cache, 
+    print_gpu_memory_stats,
+    monitor_memory_usage,
+    optimize_memory_settings
+)
+
+# Apply memory optimization settings
+optimize_memory_settings()
+
+# Monitor memory usage of a function
+@monitor_memory_usage
+def train_model():
+    # Your training code here
+    pass
+
+# Clear GPU cache during training
+clear_gpu_cache()
+
+# Print detailed memory statistics
+print_gpu_memory_stats("After training")
+```
+
+#### Memory Management Features
+- **GPU Cache Management**: Automatic clearing of GPU memory cache
+- **Memory Monitoring**: Real-time memory usage tracking during training
+- **Memory Optimization**: Automatic memory optimization settings
+- **OOM Prevention**: Gradient accumulation and batch size optimization
+- **Memory Statistics**: Detailed GPU memory usage reporting
+
 #### Custom Dataset
 ```python
 # Create custom dataset class
@@ -496,11 +569,27 @@ patchcore_result = patchcore_model.infer_anomaly_map(test_image)
 
 ### Core Components
 
-#### `main.py`
-- **Unified Training Script**: Single entry point for both PaDiM and PatchCore training
+#### Training Scripts
+
+**`main.py`** - Unified Training Script (Recommended)
+- **Production Ready**: Single entry point for both PaDiM and PatchCore training
 - **CLI Arguments**: Comprehensive command-line interface with algorithm selection
+- **Memory Management**: PyTorch Lightning with automatic memory optimization
 - **Result Management**: Automatic model saving and database integration
-- **No Visualization**: Pure training mode for production environments
+- **No Visualization**: Clean training mode for production environments
+
+**`train_enhanced.py`** - GPU-Accelerated Training with Visualization
+- **GPU Acceleration**: Full GPU acceleration for feature extraction and computation
+- **Memory Monitoring**: Real-time memory usage tracking and optimization
+- **Visualization**: Automatic generation of training result visualizations
+- **Database Integration**: Complete experiment tracking and result storage
+- **Research Focus**: Ideal for development and research workflows
+
+**`train_simple.py`** - Simple Training Script
+- **Lightweight**: Basic implementation for quick testing and prototyping
+- **Minimal Dependencies**: Simple visualization with matplotlib
+- **Memory Management**: Basic GPU memory management utilities
+- **Development**: Good for understanding the algorithm and quick tests
 
 #### `/src/data/`
 - **`dataset.py`**: MVTec dataset loader with proper transforms and data loading utilities
@@ -522,6 +611,7 @@ patchcore_result = patchcore_model.infer_anomaly_map(test_image)
 
 #### `/src/utils/`
 - **`utils.py`**: Statistical computations (mean, covariance) and Mahalanobis distance
+- **`gpu_utils.py`**: GPU memory management and optimization utilities
 - **`bbox_detector.py`**: Bounding box detection for anomaly localization
 - **`database.py`**: SQLite database management for tracking training runs
 - **`file_manager.py`**: Results organization and model persistence
@@ -570,9 +660,11 @@ DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 ### Common Issues
 
 1. **CUDA Out of Memory**
-   - Reduce batch size in config
-   - Use CPU inference for testing
-   - Enable gradient checkpointing
+   - Use GPU memory management utilities: `clear_gpu_cache()`
+   - Reduce batch size: `--batch-size 8`
+   - Enable gradient accumulation: `--accumulate-grad-batches 2`
+   - Use memory optimization: `optimize_memory_settings()`
+   - Check memory usage: `print_gpu_memory_stats()`
 
 2. **Model Loading Errors**
    - Check model path and format
@@ -584,17 +676,31 @@ DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
    - Check image formats and sizes
    - Ensure proper train/test split
 
+4. **Memory Management Issues**
+   - Monitor memory usage with `@monitor_memory_usage` decorator
+   - Use `train_enhanced.py` for automatic memory management
+   - Clear GPU cache regularly during training
+   - Set appropriate memory fraction with `set_memory_fraction()`
+
 ### Performance Optimization
 
 1. **Training Optimization**
-   - Use mixed precision training
-   - Implement data parallel training
-   - Use efficient data loading
+   - Use GPU-accelerated training: `--gpu`
+   - Enable gradient accumulation to reduce memory usage
+   - Use PyTorch Lightning for automatic optimization
+   - Apply memory optimization settings before training
 
 2. **Inference Optimization**
-   - Model quantization
-   - TensorRT optimization
+   - Model quantization for reduced memory footprint
+   - TensorRT optimization for faster inference
    - Batch inference for multiple images
+   - GPU memory management during inference
+
+3. **Memory Optimization**
+   - Use `train_enhanced.py` for GPU-accelerated training
+   - Enable automatic memory management callbacks
+   - Monitor memory usage throughout training
+   - Clear GPU cache between epochs and batches
 
 ## 📝 License
 

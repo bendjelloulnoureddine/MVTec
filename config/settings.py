@@ -29,7 +29,7 @@ class DatabaseConfig:
 class ModelConfig:
     """Model configuration settings"""
     image_size: int = 256
-    batch_size: int = 16
+    batch_size: int = 2  # Reduced for memory efficiency
     learning_rate: float = 1e-4
     latent_dim: int = 512
     max_epochs: int = 50
@@ -49,8 +49,8 @@ class TrainingConfig:
     log_dir: str = "logs"
     model_type: ModelType = ModelType.AUTOENCODER
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
-    num_workers: int = 4
-    pin_memory: bool = True
+    num_workers: int = 2  # Reduced for memory efficiency
+    pin_memory: bool = False  # Disabled to save GPU memory
     mixed_precision: bool = True
     gradient_clip_val: float = 1.0
     

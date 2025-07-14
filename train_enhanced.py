@@ -7,6 +7,7 @@ import cv2
 import os
 from datetime import datetime
 from tqdm import tqdm
+import gc
 
 # Import custom modules
 from src.data.dataset import get_train_loader, get_test_images
@@ -38,28 +39,50 @@ class PaDiMGPU:
         self.trained = False
         
     def train(self, dataloader):
-        """Train PaDiM model using GPU acceleration"""
+        """Train PaDiM model using GPU acceleration with memory management"""
         print("🚀 Starting GPU-accelerated training...")
         clear_gpu_cache()
+        gc.collect()
         
-        # Extract features
+        # Extract features with memory management
         print("📦 Extracting features from training data...")
         self.features = []
         
         with torch.no_grad():
-            for batch in tqdm(dataloader, desc="Feature extraction"):
+            for batch_idx, batch in enumerate(tqdm(dataloader, desc="Feature extraction")):
                 batch = ensure_gpu_tensor(batch)
                 feats = self.feature_extractor(batch)
                 self.features.append(feats)
+                
+                # Clear GPU cache every 10 batches to prevent memory accumulation
+                if batch_idx % 10 == 0:
+                    clear_gpu_cache()
+                
+                # Monitor memory usage
+                if batch_idx % 50 == 0 and torch.cuda.is_available():
+                    current_memory = torch.cuda.memory_allocated() / 1024**3
+                    print(f"Memory usage at batch {batch_idx}: {current_memory:.2f} GB")
         
-        # Concatenate all features
+        # Concatenate all features with memory management
+        print("🔗 Concatenating features...")
         all_features = torch.cat(self.features, dim=0)
+        
+        # Clear intermediate features to free memory
+        del self.features
+        clear_gpu_cache()
+        gc.collect()
+        
         print(f"📊 Computing statistics for {all_features.shape[0]} samples...")
         
         # Compute statistics using GPU
         self.mean, cov = compute_embedding_stats_gpu(all_features)
         
-        # Compute inverse covariance matrices
+        # Clear all_features to free memory
+        del all_features
+        clear_gpu_cache()
+        gc.collect()
+        
+        # Compute inverse covariance matrices with memory management
         print("🔢 Computing inverse covariance matrices...")
         H, W, C, _ = cov.shape
         self.cov_inv = torch.zeros_like(cov)
@@ -71,9 +94,22 @@ class PaDiMGPU:
                 except:
                     # Use pseudoinverse if matrix is singular
                     self.cov_inv[i, j] = torch.pinverse(cov[i, j] + 1e-6 * torch.eye(C, device=self.device))
+            
+            # Clear GPU cache every 10 rows to prevent memory accumulation
+            if i % 10 == 0:
+                clear_gpu_cache()
+        
+        # Final memory cleanup
+        clear_gpu_cache()
+        gc.collect()
         
         self.trained = True
         print("✅ Training completed successfully!")
+        
+        # Print final memory usage
+        if torch.cuda.is_available():
+            final_memory = torch.cuda.memory_allocated() / 1024**3
+            print(f"Final GPU memory usage: {final_memory:.2f} GB")
         
     def infer_anomaly_map(self, x):
         """Compute anomaly map for input image using GPU"""
@@ -135,9 +171,15 @@ def main():
     db = InferenceDatabase()
     results_manager = ResultsManager()
     
-    # Clear GPU cache
+    # Clear GPU cache and garbage collection
     clear_gpu_cache()
+    gc.collect()
     torch.set_float32_matmul_precision('medium')
+    
+    # Print initial memory usage
+    if torch.cuda.is_available():
+        initial_memory = torch.cuda.memory_allocated() / 1024**3
+        print(f"Initial GPU memory usage: {initial_memory:.2f} GB")
     
     # Get next model ID
     model_id = results_manager.get_next_model_id()
@@ -147,13 +189,29 @@ def main():
     output_folder, folder_name = results_manager.create_result_folder(model_id)
     print(f"📁 Results folder: {output_folder}")
     
-    # Initialize and train model
-    print("🏗️  Initializing PaDiM model...")
-    model = PaDiMGPU()
-    
-    # Train the model
-    train_loader = get_train_loader()
-    model.train(train_loader)
+    try:
+        # Initialize and train model
+        print("🏗️  Initializing PaDiM model...")
+        model = PaDiMGPU()
+        
+        # Train the model with memory management
+        train_loader = get_train_loader()
+        model.train(train_loader)
+        
+        # Clear memory after training
+        del train_loader
+        clear_gpu_cache()
+        gc.collect()
+        
+    except RuntimeError as e:
+        if "out of memory" in str(e).lower():
+            print(f"CUDA out of memory error during training: {e}")
+            print("Try reducing batch size or image size")
+            clear_gpu_cache()
+            gc.collect()
+            raise e
+        else:
+            raise e
     
     # Save model
     model_path = os.path.join(output_folder, "model.pth")
@@ -180,7 +238,7 @@ def main():
     # Create model summary
     results_manager.create_model_summary(output_folder, model_metadata)
     
-    # Test inference on sample images
+    # Test inference on sample images with memory management
     print("🧪 Running inference on test images...")
     test_imgs = get_test_images()
     
@@ -188,16 +246,29 @@ def main():
     for i, img_path in enumerate(test_imgs[:5]):
         print(f"Processing image {i+1}/5: {os.path.basename(img_path)}")
         
-        # Preprocess image
-        img_tensor = preprocess_image(img_path)
-        
-        # Run inference
-        anomaly_map = model.infer_anomaly_map(img_tensor)
-        anomaly_score = model.get_anomaly_score(anomaly_map)
-        
-        # Load original image for visualization
-        original_img = cv2.imread(img_path)
-        original_img = cv2.cvtColor(original_img, cv2.COLOR_BGR2RGB)
+        try:
+            # Preprocess image
+            img_tensor = preprocess_image(img_path)
+            
+            # Run inference with memory management
+            anomaly_map = model.infer_anomaly_map(img_tensor)
+            anomaly_score = model.get_anomaly_score(anomaly_map)
+            
+            # Load original image for visualization
+            original_img = cv2.imread(img_path)
+            original_img = cv2.cvtColor(original_img, cv2.COLOR_BGR2RGB)
+            
+            # Clear GPU cache after each inference
+            clear_gpu_cache()
+            
+        except RuntimeError as e:
+            if "out of memory" in str(e).lower():
+                print(f"CUDA out of memory error during inference: {e}")
+                clear_gpu_cache()
+                gc.collect()
+                continue
+            else:
+                raise e
         
         # Save visualization
         viz_path = save_visualization(

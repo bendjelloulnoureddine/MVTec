@@ -26,10 +26,12 @@ class MVTecDataset(Dataset):
         img = Image.fromarray(img)
         return self.transform(img)
 
-def get_train_loader():
+def get_train_loader(batch_size=None):
+    if batch_size is None:
+        batch_size = C.BATCH_SIZE
     return DataLoader(
         MVTecDataset("dataset/screw/train/good"), 
-        batch_size=C.BATCH_SIZE, 
+        batch_size=batch_size, 
         shuffle=False,
         num_workers=2,  # Reduced for memory efficiency
         pin_memory=False,  # Disable pin_memory to save GPU memory

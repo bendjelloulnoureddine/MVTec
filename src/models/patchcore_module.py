@@ -4,6 +4,8 @@ import torch.nn as nn
 import pytorch_lightning as pl
 import faiss
 import numpy as np
+from src.utils.gpu_utils import clear_gpu_cache
+import gc
 
 class FeatureExtractor(nn.Module):
     def __init__(self, layers=[1, 2, 3]):
@@ -31,14 +33,33 @@ class PatchCore(pl.LightningModule):
         patches = features.unfold(2, 1, 1).unfold(3, 1, 1)
         patches = patches.permute(0, 2, 3, 1, 4, 5).reshape(-1, features.shape[1])
         self.patches.append(patches.detach().cpu())
+        
+        # Clear GPU cache every 50 batches to prevent memory accumulation
+        if batch_idx % 50 == 0:
+            clear_gpu_cache()
+        
         # Return a dummy loss for PyTorch Lightning
         return torch.tensor(0.0, requires_grad=True, device=batch.device)
 
     def on_train_end(self):
+        # Clear GPU cache before processing
+        clear_gpu_cache()
+        gc.collect()
+        
         all_patches = torch.cat(self.patches, dim=0).numpy().astype(np.float32)
+        
+        # Clear patches list to free memory
+        del self.patches
+        gc.collect()
+        
         self.index = faiss.IndexFlatL2(all_patches.shape[1])
         self.index.add(all_patches)
         self.patch_shape = (32, 32)  # H, W
+        
+        # Clear patches array to free memory
+        del all_patches
+        gc.collect()
+        clear_gpu_cache()
 
     def infer_anomaly_map(self, x):
         self.eval()

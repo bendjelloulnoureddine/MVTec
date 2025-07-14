@@ -1,0 +1,9 @@
+Model Training Summary
+==================================================
+
+Model Type: PADIM
+Training Date: Today
+Model ID: 4
+Dataset: MVTec (default)
+Performance Metrics: N/A
+Created At: 2025-07-14 13:26:23

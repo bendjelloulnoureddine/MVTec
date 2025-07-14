@@ -18,6 +18,7 @@ from pathlib import Path
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 import warnings
+import gc
 warnings.filterwarnings('ignore')
 
 class ScrewDataset(Dataset):
@@ -167,6 +168,11 @@ class AnomalyDetector(pl.LightningModule):
         if good_mask.sum() > 0:
             loss = self.criterion(reconstructed[good_mask], images[good_mask])
             self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
+            
+            # Clear GPU cache every 100 batches to prevent memory accumulation
+            if batch_idx % 100 == 0:
+                torch.cuda.empty_cache()
+            
             return loss
         return None
     
@@ -202,6 +208,35 @@ class AnomalyDetector(pl.LightningModule):
             'lr_scheduler': scheduler,
             'monitor': 'val_loss'
         }
+
+class MemoryManagementCallback(pl.Callback):
+    """Callback to manage GPU memory during training"""
+    
+    def on_train_epoch_start(self, trainer, pl_module):
+        """Clear memory at the start of each epoch"""
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            current_memory = torch.cuda.memory_allocated() / 1024**3
+            print(f"GPU memory at epoch start: {current_memory:.2f} GB")
+    
+    def on_train_epoch_end(self, trainer, pl_module):
+        """Clear memory at the end of each epoch"""
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            current_memory = torch.cuda.memory_allocated() / 1024**3
+            print(f"GPU memory at epoch end: {current_memory:.2f} GB")
+        gc.collect()
+    
+    def on_validation_epoch_start(self, trainer, pl_module):
+        """Clear memory before validation"""
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    
+    def on_validation_epoch_end(self, trainer, pl_module):
+        """Clear memory after validation"""
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        gc.collect()
 
 class DataModule(pl.LightningDataModule):
     def __init__(self, data_dir, batch_size=32, img_size=256):
@@ -411,16 +446,22 @@ def evaluate_model(model, dataloader, threshold):
     }
 
 def main():
+    # Clear initial GPU memory
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    gc.collect()
+    
     # Set tensor core precision for better performance on RTX GPUs
     torch.set_float32_matmul_precision('medium')
     
-    # Configuration
+    # Configuration with memory-efficient settings
     DATA_DIR = "dataset/screw"
-    BATCH_SIZE = 16
+    BATCH_SIZE = 2  # Reduced for memory efficiency
     IMG_SIZE = 256
     LEARNING_RATE = 1e-3
     LATENT_DIM = 512
     MAX_EPOCHS = 50
+    ACCUMULATE_GRAD_BATCHES = 4  # Gradient accumulation for effective batch size
     
     # Initialize wandb
     wandb.init(
@@ -441,7 +482,7 @@ def main():
     # Setup model
     model = AnomalyDetector(LEARNING_RATE, LATENT_DIM)
     
-    # Setup callbacks
+    # Setup callbacks with memory management
     checkpoint_callback = ModelCheckpoint(
         monitor='val_loss',
         dirpath='checkpoints',
@@ -457,20 +498,37 @@ def main():
         verbose=True
     )
     
-    # Setup trainer
+    memory_callback = MemoryManagementCallback()
+    
+    # Setup trainer with memory management
     trainer = pl.Trainer(
         max_epochs=MAX_EPOCHS,
-        callbacks=[checkpoint_callback, early_stopping],
+        callbacks=[checkpoint_callback, early_stopping, memory_callback],
         logger=WandbLogger(),
         accelerator='auto',
         devices='auto',
-        precision=16,
-        log_every_n_steps=10
+        precision=16,  # Use mixed precision for memory efficiency
+        log_every_n_steps=10,
+        accumulate_grad_batches=ACCUMULATE_GRAD_BATCHES,
+        gradient_clip_val=1.0,  # Prevent gradient explosions
+        enable_checkpointing=True,
+        enable_progress_bar=True
     )
     
-    # Train model
+    # Train model with memory management
     print("Starting training...")
-    trainer.fit(model, data_module)
+    try:
+        trainer.fit(model, data_module)
+    except RuntimeError as e:
+        if "out of memory" in str(e).lower():
+            print(f"CUDA out of memory error during training: {e}")
+            print("Try reducing batch size, image size, or model complexity")
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            gc.collect()
+            raise e
+        else:
+            raise e
     
     # Load best model
     best_model = AnomalyDetector.load_from_checkpoint(
@@ -478,6 +536,11 @@ def main():
         learning_rate=LEARNING_RATE,
         latent_dim=LATENT_DIM
     )
+    
+    # Clear memory after loading
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    gc.collect()
     
     # Calculate threshold using validation set
     print("Calculating threshold...")

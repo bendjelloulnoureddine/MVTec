@@ -4,6 +4,8 @@ import torch.nn as nn
 import pytorch_lightning as pl
 import numpy as np
 from src.utils.utils import compute_embedding_stats, mahalanobis_map
+from src.utils.gpu_utils import clear_gpu_cache
+import gc
 
 class FeatureExtractor(nn.Module):
     def __init__(self, layers):
@@ -28,11 +30,25 @@ class PaDiM(pl.LightningModule):
         x = batch
         feats = self.feature_extractor(x)
         self.features.append(feats.cpu())
+        
+        # Clear GPU cache every 50 batches to prevent memory accumulation
+        if batch_idx % 50 == 0:
+            clear_gpu_cache()
+        
         # Return a dummy loss for PyTorch Lightning
         return torch.tensor(0.0, requires_grad=True, device=x.device)
 
     def on_train_end(self):
+        # Clear GPU cache before processing
+        clear_gpu_cache()
+        gc.collect()
+        
         features = torch.cat(self.features).detach().numpy()
+        
+        # Clear features list to free memory
+        del self.features
+        gc.collect()
+        
         mean, cov = compute_embedding_stats(features)
         self.mean = mean
         # Add regularization to prevent singular matrices
@@ -40,6 +56,11 @@ class PaDiM(pl.LightningModule):
         H, W, C, _ = cov.shape
         regularized_cov = cov + eps * np.eye(C).reshape(1, 1, C, C)
         self.cov_inv = np.linalg.inv(regularized_cov)
+        
+        # Clear variables to free memory
+        del features, cov, regularized_cov
+        gc.collect()
+        clear_gpu_cache()
 
     def infer_anomaly_map(self, x):
         with torch.no_grad():

@@ -98,7 +98,7 @@ test_result_*.png
 *.temp
 temp/
 tmp/
-
+results/
 # Configuration (uncomment if sensitive)
 # config/
 # *.yaml

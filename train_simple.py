@@ -5,9 +5,11 @@ import numpy as np
 from tqdm import tqdm
 from src.data.dataset import get_train_loader, get_test_images
 from src.utils.utils import compute_embedding_stats, mahalanobis_map
+from src.utils.gpu_utils import clear_gpu_cache
 from config.config import Config as C
 import matplotlib.pyplot as plt
 import cv2
+import gc
 
 class FeatureExtractor(nn.Module):
     def __init__(self, layers):
@@ -33,18 +35,50 @@ class PaDiM:
         print("📦 Extracting features from training data...")
         self.feature_extractor.cuda()
         
+        # Clear GPU cache before training
+        clear_gpu_cache()
+        gc.collect()
+        
         with torch.no_grad():
-            for batch in tqdm(dataloader, desc="Training"):
+            for batch_idx, batch in enumerate(tqdm(dataloader, desc="Training")):
                 batch = batch.cuda()
                 feats = self.feature_extractor(batch)
                 self.features.append(feats.cpu())
                 
+                # Clear GPU cache every 10 batches
+                if batch_idx % 10 == 0:
+                    clear_gpu_cache()
+                
+                # Monitor memory usage
+                if batch_idx % 50 == 0 and torch.cuda.is_available():
+                    current_memory = torch.cuda.memory_allocated() / 1024**3
+                    print(f"Memory usage at batch {batch_idx}: {current_memory:.2f} GB")
+                
+        # Clear GPU cache after feature extraction
+        clear_gpu_cache()
+        gc.collect()
+                
         # Compute statistics
         print("📊 Computing statistics...")
         features = torch.cat(self.features).detach().numpy()
+        
+        # Clear features list to free memory
+        del self.features
+        gc.collect()
+        
         self.mean, cov = compute_embedding_stats(features)
         self.cov_inv = np.linalg.inv(cov)
+        
+        # Final memory cleanup
+        clear_gpu_cache()
+        gc.collect()
+        
         print("✅ Training completed!")
+        
+        # Print final memory usage
+        if torch.cuda.is_available():
+            final_memory = torch.cuda.memory_allocated() / 1024**3
+            print(f"Final GPU memory usage: {final_memory:.2f} GB")
         
     def infer_anomaly_map(self, x):
         with torch.no_grad():
@@ -62,50 +96,88 @@ def preprocess_image(path):
     return img.unsqueeze(0)
 
 if __name__ == "__main__":
-    # Clear GPU memory
-    torch.cuda.empty_cache()
+    # Clear GPU memory and garbage collection
+    clear_gpu_cache()
+    gc.collect()
     
     # Set precision
     torch.set_float32_matmul_precision('medium')
     
-    # Initialize model
-    model = PaDiM()
+    # Print initial memory usage
+    if torch.cuda.is_available():
+        initial_memory = torch.cuda.memory_allocated() / 1024**3
+        print(f"Initial GPU memory usage: {initial_memory:.2f} GB")
     
-    # Train the model
-    train_loader = get_train_loader()
-    model.train(train_loader)
-    
-    # Test inference
-    print("🧪 Testing inference...")
-    test_imgs = get_test_images()
-    
-    for i, img_path in enumerate(test_imgs[:3]):
-        img_tensor = preprocess_image(img_path)
-        anomaly_map = model.infer_anomaly_map(img_tensor)
+    try:
+        # Initialize model
+        model = PaDiM()
         
-        # Display results
-        plt.figure(figsize=(10, 4))
+        # Train the model
+        train_loader = get_train_loader()
+        model.train(train_loader)
         
-        plt.subplot(1, 3, 1)
-        img = cv2.imread(img_path)
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        plt.imshow(img)
-        plt.title("Original")
-        plt.axis('off')
+        # Clear memory after training
+        del train_loader
+        clear_gpu_cache()
+        gc.collect()
         
-        plt.subplot(1, 3, 2)
-        plt.imshow(anomaly_map, cmap='hot')
-        plt.title("Anomaly Map")
-        plt.axis('off')
+        # Test inference with memory management
+        print("🧪 Testing inference...")
+        test_imgs = get_test_images()
         
-        plt.subplot(1, 3, 3)
-        plt.imshow(img)
-        plt.imshow(anomaly_map, cmap='hot', alpha=0.5)
-        plt.title("Overlay")
-        plt.axis('off')
+        for i, img_path in enumerate(test_imgs[:3]):
+            try:
+                img_tensor = preprocess_image(img_path)
+                anomaly_map = model.infer_anomaly_map(img_tensor)
+                
+                # Clear GPU cache after each inference
+                clear_gpu_cache()
+                
+                # Display results
+                plt.figure(figsize=(10, 4))
+                
+                plt.subplot(1, 3, 1)
+                img = cv2.imread(img_path)
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                plt.imshow(img)
+                plt.title("Original")
+                plt.axis('off')
+                
+                plt.subplot(1, 3, 2)
+                plt.imshow(anomaly_map, cmap='hot')
+                plt.title("Anomaly Map")
+                plt.axis('off')
+                
+                plt.subplot(1, 3, 3)
+                plt.imshow(img)
+                plt.imshow(anomaly_map, cmap='hot', alpha=0.5)
+                plt.title("Overlay")
+                plt.axis('off')
+                
+                plt.tight_layout()
+                plt.savefig(f"result_{i}.png")
+                plt.show()
+                
+                # Clear variables to free memory
+                del img_tensor, anomaly_map, img
+                gc.collect()
+                
+            except RuntimeError as e:
+                if "out of memory" in str(e).lower():
+                    print(f"CUDA out of memory error during inference: {e}")
+                    clear_gpu_cache()
+                    gc.collect()
+                    continue
+                else:
+                    raise e
         
-        plt.tight_layout()
-        plt.savefig(f"result_{i}.png")
-        plt.show()
-    
-    print("🎉 All done!")
+        print("🎉 All done!")
+        
+    except RuntimeError as e:
+        if "out of memory" in str(e).lower():
+            print(f"CUDA out of memory error: {e}")
+            print("Try reducing batch size or image size")
+            clear_gpu_cache()
+            gc.collect()
+        else:
+            raise e
